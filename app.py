@@ -63,7 +63,7 @@ def allowed_file(filename):
 @app.route('/')
 def index():
     """Main page with upload form."""
-    return render_template('index.html')
+    return "🚀 AstroVision DEM API is Running!"
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
