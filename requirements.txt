@@ -4,4 +4,9 @@ opencv-python
 numpy
 matplotlib
 Flask-SQLAlchemy
-plotly
+scikit-image
+Pillow
+requests
+scipy
+pandas
+tqdm
