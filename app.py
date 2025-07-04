@@ -47,7 +47,6 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 db.init_app(app)
 
 with app.app_context():
-    # Import models to create tables
     import models
     db.create_all()
 
@@ -57,46 +56,40 @@ def utility_processor():
     return dict(timezone=timezone, timedelta=timedelta)
 
 def allowed_file(filename):
-    """Check if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route("/")
 def home():
-    return render_template("results_new.html")  # or your preferred homepage
+    return render_template("results_new.html")
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle file upload and initiate DEM processing."""
     try:
         if 'file' not in request.files:
             flash('No file selected', 'error')
-            return redirect(url_for('index'))
-        
+            return redirect(url_for('home'))
+
         file = request.files['file']
         if file.filename == '':
             flash('No file selected', 'error')
-            return redirect(url_for('index'))
-        
+            return redirect(url_for('home'))
+
         if not allowed_file(file.filename):
             flash('Invalid file format. Please upload PNG, JPEG, or TIFF images.', 'error')
-            return redirect(url_for('index'))
-        
-        # Generate unique filename
+            return redirect(url_for('home'))
+
         filename = secure_filename(file.filename)
         unique_id = str(uuid.uuid4())
         file_extension = filename.rsplit('.', 1)[1].lower()
         unique_filename = f"{unique_id}.{file_extension}"
-        
-        # Save uploaded file
+
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         file.save(filepath)
-        
-        # Get processing parameters from form
+
         scale_factor = float(request.form.get('scale_factor', 1.0))
         smoothing = int(request.form.get('smoothing', 3))
         elevation_range = float(request.form.get('elevation_range', 255.0))
-        
-        # Create processing record
+
         from models import ProcessingJob
         job = ProcessingJob(
             id=unique_id,
@@ -110,87 +103,81 @@ def upload_file():
         )
         db.session.add(job)
         db.session.commit()
-        
-        # Store job ID in session for tracking
+
         session['job_id'] = unique_id
-        
-        # Process the image
+
         processor = DEMProcessor()
         try:
             result = processor.process_image(
-                filepath, 
+                filepath,
                 output_folder=app.config['OUTPUT_FOLDER'],
                 job_id=unique_id,
                 scale_factor=scale_factor,
                 smoothing=smoothing,
                 elevation_range=elevation_range
             )
-            
-            # Update job status
+
             job.status = 'completed'
             job.output_files = result['output_files']
             job.processing_log = result['log']
             job.completed_at = datetime.utcnow()
             db.session.commit()
-            
+
             flash('DEM processing completed successfully!', 'success')
-            return redirect(url_for('results', job_id=unique_id))
-            
+            return redirect(url_for('results_by_id', job_id=unique_id))
+
         except Exception as e:
             logging.error(f"Processing error: {str(e)}")
             job.status = 'failed'
             job.processing_log = f"Error: {str(e)}"
             db.session.commit()
             flash(f'Processing failed: {str(e)}', 'error')
-            return redirect(url_for('index'))
-            
+            return redirect(url_for('home'))
+
     except Exception as e:
         logging.error(f"Upload error: {str(e)}")
         flash(f'Upload failed: {str(e)}', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('home'))
 
 @app.route('/results/<job_id>')
-def results(job_id):
-    """Display processing results."""
+def results_by_id(job_id):
     from models import ProcessingJob
     job = ProcessingJob.query.get_or_404(job_id)
-    
+
     if job.status != 'completed':
         flash('Processing not completed or failed', 'error')
-        return redirect(url_for('index'))
-    
+        return redirect(url_for('home'))
+
     return render_template('results.html', job=job)
 
 @app.route('/download/<job_id>/<file_type>')
 def download_file(job_id, file_type):
-    """Download generated DEM files."""
     from models import ProcessingJob
     job = ProcessingJob.query.get_or_404(job_id)
-    
+
     if job.status != 'completed':
         flash('File not available', 'error')
-        return redirect(url_for('index'))
-    
+        return redirect(url_for('home'))
+
     filename_map = {
         'dem': f"{job_id}_dem.tif",
-        'ascii': f"{job_id}_dem.asc", 
+        'ascii': f"{job_id}_dem.asc",
         'visualization': f"{job_id}_3d_plot.html",
         'dem_image': f"{job_id}_dem_image.png",
         'dem_topview': f"{job_id}_dem_image_topview.png",
         'dem_grayscale': f"{job_id}_dem_image_grayscale.png"
     }
-    
+
     if file_type not in filename_map:
         flash('Invalid file type', 'error')
-        return redirect(url_for('results', job_id=job_id))
-    
+        return redirect(url_for('results_by_id', job_id=job_id))
+
     filepath = os.path.join(app.config['OUTPUT_FOLDER'], filename_map[file_type])
-    
+
     if not os.path.exists(filepath):
         flash('File not found', 'error')
-        return redirect(url_for('results', job_id=job_id))
-    
-    # For HTML visualization files, serve inline for iframe viewing
+        return redirect(url_for('results_by_id', job_id=job_id))
+
     if file_type == 'visualization':
         return send_file(filepath, as_attachment=False, mimetype='text/html')
     else:
@@ -198,10 +185,9 @@ def download_file(job_id, file_type):
 
 @app.route('/status/<job_id>')
 def get_status(job_id):
-    """Get processing status (for AJAX requests)."""
     from models import ProcessingJob
     job = ProcessingJob.query.get_or_404(job_id)
-    
+
     return jsonify({
         'status': job.status,
         'log': job.processing_log,
@@ -211,9 +197,8 @@ def get_status(job_id):
 
 @app.errorhandler(413)
 def too_large(e):
-    """Handle file too large error."""
     flash("File is too large. Maximum size is 16MB.", 'error')
-    return redirect(url_for('index'))
+    return redirect(url_for('home'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
