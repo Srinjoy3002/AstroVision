@@ -60,9 +60,9 @@ def allowed_file(filename):
     """Check if the uploaded file has an allowed extension."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route("/results")
-def show_results():
-    return render_template("results_new.html")
+@app.route("/")
+def home():
+    return render_template("results_new.html")  # or your preferred homepage
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
